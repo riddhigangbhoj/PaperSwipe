@@ -1,62 +1,108 @@
 import axios from 'axios'
 
-// Use our backend API which proxies arXiv requests (no CORS issues)
-const BACKEND_API = 'http://localhost:8000/api'
+// arXiv API endpoint (we use a CORS proxy for browser requests)
+const ARXIV_API = 'https://export.arxiv.org/api/query'
+const CORS_PROXY = 'https://corsproxy.io/?'
+
+// Parse arXiv XML response to JSON
+const parseArxivResponse = (xmlText) => {
+  const parser = new DOMParser()
+  const xml = parser.parseFromString(xmlText, 'text/xml')
+  const entries = xml.querySelectorAll('entry')
+
+  return Array.from(entries).map(entry => {
+    const id = entry.querySelector('id')?.textContent || ''
+    const arxivId = id.split('/abs/').pop()?.split('v')[0] || id
+
+    const authors = Array.from(entry.querySelectorAll('author name'))
+      .map(author => author.textContent)
+
+    const categories = Array.from(entry.querySelectorAll('category'))
+      .map(cat => cat.getAttribute('term'))
+      .filter(Boolean)
+
+    const links = Array.from(entry.querySelectorAll('link'))
+    const pdfLink = links.find(link => link.getAttribute('title') === 'pdf')
+    const absLink = links.find(link => link.getAttribute('type') === 'text/html')
+
+    return {
+      id: arxivId,
+      title: entry.querySelector('title')?.textContent?.replace(/\s+/g, ' ').trim() || '',
+      authors,
+      abstract: entry.querySelector('summary')?.textContent?.trim() || '',
+      categories,
+      publishedDate: entry.querySelector('published')?.textContent || '',
+      pdfUrl: pdfLink?.getAttribute('href') || `https://arxiv.org/pdf/${arxivId}.pdf`,
+      sourceUrl: absLink?.getAttribute('href') || `https://arxiv.org/abs/${arxivId}`
+    }
+  })
+}
+
+// Map common topic names to arXiv category codes
+const topicToCategoryMap = {
+  'machine learning': 'cs.LG',
+  'artificial intelligence': 'cs.AI',
+  'computer vision': 'cs.CV',
+  'natural language processing': 'cs.CL',
+  'robotics': 'cs.RO',
+  'physics': 'physics',
+  'mathematics': 'math',
+  'statistics': 'stat',
+  'quantitative biology': 'q-bio',
+  'quantitative finance': 'q-fin',
+  'economics': 'econ',
+  'electrical engineering': 'eess',
+  'neural networks': 'cs.NE',
+  'cryptography': 'cs.CR',
+  'databases': 'cs.DB',
+  'software engineering': 'cs.SE',
+  'quantum computing': 'quant-ph',
+  'astrophysics': 'astro-ph',
+  'condensed matter': 'cond-mat',
+  'high energy physics': 'hep-ph'
+}
+
+const normalizeCategory = (topic) => {
+  const lower = topic.toLowerCase().trim()
+  return topicToCategoryMap[lower] || topic
+}
 
 export const fetchPapers = async (topics, seenPaperIds = [], maxResults = 20) => {
   try {
-    const categories = topics.join(',')
-    const response = await axios.get(`${BACKEND_API}/papers/search`, {
-      params: {
-        categories,
-        max_results: maxResults,
-        sort_by: 'date'
-      }
-    })
+    // Convert topics to arXiv categories
+    const categories = topics.map(normalizeCategory)
 
-    // Transform backend response to match expected format
-    const papers = response.data.map(paper => ({
-      id: paper.arxiv_id,
-      title: paper.title,
-      authors: paper.authors,
-      abstract: paper.abstract,
-      categories: paper.categories,
-      publishedDate: paper.published_date,
-      pdfUrl: paper.pdf_url,
-      sourceUrl: paper.source_url
-    }))
+    // Build arXiv query - search in category
+    const catQuery = categories.map(cat => `cat:${cat}`).join('+OR+')
+
+    const url = `${ARXIV_API}?search_query=${catQuery}&start=0&max_results=${maxResults + seenPaperIds.length}&sortBy=submittedDate&sortOrder=descending`
+
+    // Use CORS proxy
+    const response = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`)
+
+    const papers = parseArxivResponse(response.data)
 
     // Filter out papers we've already seen
     const unseenPapers = papers.filter(paper => !seenPaperIds.includes(paper.id))
 
     return unseenPapers.slice(0, maxResults)
   } catch (error) {
-    console.error('Error fetching from backend:', error)
+    console.error('Error fetching from arXiv:', error)
     throw new Error('Failed to fetch papers from arXiv')
   }
 }
 
 export const searchPapers = async (searchQuery, maxResults = 20) => {
   try {
-    const response = await axios.get(`${BACKEND_API}/papers/search`, {
-      params: {
-        query: searchQuery,
-        max_results: maxResults,
-        sort_by: 'relevance'
-      }
-    })
+    // Encode search query for arXiv
+    const query = encodeURIComponent(searchQuery)
 
-    // Transform backend response to match expected format
-    return response.data.map(paper => ({
-      id: paper.arxiv_id,
-      title: paper.title,
-      authors: paper.authors,
-      abstract: paper.abstract,
-      categories: paper.categories,
-      publishedDate: paper.published_date,
-      pdfUrl: paper.pdf_url,
-      sourceUrl: paper.source_url
-    }))
+    const url = `${ARXIV_API}?search_query=all:${query}&start=0&max_results=${maxResults}&sortBy=relevance`
+
+    // Use CORS proxy
+    const response = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`)
+
+    return parseArxivResponse(response.data)
   } catch (error) {
     console.error('Error searching papers:', error)
     throw new Error('Failed to search papers')
