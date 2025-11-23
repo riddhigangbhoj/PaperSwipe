@@ -2,7 +2,10 @@ import axios from 'axios'
 
 // arXiv API endpoint (we use a CORS proxy for browser requests)
 const ARXIV_API = 'https://export.arxiv.org/api/query'
-const CORS_PROXY = 'https://corsproxy.io/?'
+
+// Use environment variable for CORS proxy, with fallback
+// corsproxy.io often returns 403 in production, so we use allorigins as default
+const CORS_PROXY = import.meta.env.VITE_CORS_PROXY_URL || 'https://api.allorigins.win/raw?url='
 
 // Parse arXiv XML response to JSON
 const parseArxivResponse = (xmlText) => {
