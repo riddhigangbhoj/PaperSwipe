@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # CORS - Comma-separated string, parsed in main.py
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://riddhigangbhoj.github.io,*"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://riddhigangbhoj.github.io,https://paperswipe.riddhigangbhoj.com,*"
 
     # arXiv API
     ARXIV_API_BASE: str = "https://export.arxiv.org/api/query"
